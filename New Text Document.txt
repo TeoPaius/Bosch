@@ -1,0 +1,288 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace Lab1_02
+{
+    class Program
+    {
+        public static int NR_INPUT_PRODUCTS_STOCK = 300;
+        public static int NR_INPUT_PRODUCTS_BILL = 5;
+        public static int MAX_SALES_PER_THREAD = 20;
+
+        public static SortedDictionary<int, Product> ProductsType = new SortedDictionary<int, Product>()
+        {
+            {0,new Product("CIOCOLATA",3.5)},
+            {1,new Product("LAPTE",4.8)},
+            {2,new Product("PAINE",3.8)}
+        };
+
+        class Shop
+        {
+            private object BillCRTID = 1;
+            public SortedDictionary<Product, int> products;
+            public List<Bill> bills;
+            public double income;
+            public int failedChecks = 0;
+
+            public Shop()
+            {
+                income = 0d;
+                bills = new List<Bill>();
+                products = new SortedDictionary<Product, int>();
+                GenerateProducts();
+                foreach (KeyValuePair<Product, int> product in products)
+                {
+                    Console.Write(product.Key + " " + product.Value + "\n");
+                }
+                Console.WriteLine("--------------------------------------");
+
+            }
+
+            public int GetNextID()
+            {
+                lock (BillCRTID)
+                {
+                    int crt = (int.Parse(BillCRTID.ToString()));
+                    crt++;
+                    BillCRTID = crt;
+                    if(crt % 10 == 0)
+                    {
+                        CheckConsitency();
+                    }
+                    return crt;
+                }
+            }
+
+            private void GenerateProducts()
+            {
+                var random = new Random();
+
+                for (int i = 0; i < ProductsType.Count(); i++)
+                {
+                    this.products[ProductsType[i]] = 0;
+                }
+
+                int x = random.Next(1, NR_INPUT_PRODUCTS_STOCK);
+                for (int i = 0; i < x; i++)
+                {
+                    int idx = random.Next(0, ProductsType.Count());
+                    int randomQuantity = random.Next(1, 5);
+                    Product product = ProductsType[idx];
+
+                    if (products.ContainsKey(product))
+                    {
+                        products[product] += randomQuantity;
+                    }
+                    else
+                    {
+                        products.Add(product, randomQuantity);
+                    }
+                }
+            }
+
+            public void GenerateSales()
+            {
+                var random = new Random();
+                int noSales = random.Next(2, MAX_SALES_PER_THREAD);
+                List<Product> toBeRemoved = new List<Product>();
+                for (int i = 0; i < noSales; i++)
+                {
+                    //create a new bill
+                    Bill bill = GenerateBill();
+                    //Console.WriteLine(bill);
+
+                    toBeRemoved.Clear();
+                    
+                    if (bill.products.Count != 0)
+                    {
+                        Console.WriteLine("Bill id:" + bill.id);
+                        Console.WriteLine("thread " + Thread.CurrentThread.ManagedThreadId + " bought:");
+                    }
+                    
+                    foreach (var product in bill.products)
+                    {
+                        lock (BillCRTID) //no check is perfoming at the moment
+                        {
+                            //int y = random.Next(100, 500);
+                            //Thread.Sleep(y);
+                            KeyValuePair<Product, int> keyValuePair = new KeyValuePair<Product, int>(product.Key, products[product.Key]);
+                            lock (keyValuePair.Key)
+                            {
+                                if (products[product.Key] >= product.Value) //if it is stock
+                                {
+                                    products[product.Key] -= product.Value;
+                                    income += product.Value * product.Key.price;
+
+                                    Console.WriteLine("\t" + product.Value + " " + product.Key.ToString() + "s");
+                                }
+                                else
+                                {
+                                    Console.WriteLine("not enough of:" + product.Key.name);
+                                    toBeRemoved.Add(product.Key);
+                                }
+
+                            }
+                        }
+                    }
+
+                    lock (bills) lock (BillCRTID)
+                        {
+                        foreach (var p in toBeRemoved)
+                        {
+                            bill.products.Remove(p);
+                        }
+                        bills.Add(bill);
+                        }
+                        //Console.WriteLine(bill);
+                    
+
+                }
+            }
+            public void CheckConsitency( )
+            {
+              
+                Console.WriteLine("performing check");
+                lock (BillCRTID)
+                {
+                    Console.WriteLine("id lockes " + int.Parse(BillCRTID.ToString()));
+                        
+                    Thread.Sleep(1000);
+                    double billIncome = 0d;
+                        Console.WriteLine("all resources locked");
+                        foreach (var bill in bills)
+                        {
+                            foreach (var product in bill.products)
+                            {
+                                billIncome += product.Key.price * product.Value;
+                            }
+                        }
+                        if (Math.Abs(income - billIncome) > 0.0001)
+                        {
+                            Console.WriteLine("you fucked up the bills.. income:" + income + " bill income:" + billIncome);
+                            failedChecks++;
+                        }
+                        else
+                        {
+                            Console.WriteLine("clean check");
+                        }
+                }
+                   
+                
+
+            }
+            public Bill GenerateBill()
+            {
+                int id = GetNextID();
+                Bill bill = new Bill(id);
+                    
+                //Console.Write(bill);
+                return bill;
+                
+            }
+        }
+
+        public class Product : IComparable
+        {
+            public String name;
+            public double price;
+
+            public Product(string name, double price)
+            {
+                this.name = name;
+                this.price = price;
+            }
+
+            public int CompareTo(object obj)
+            {
+                Product product = (Product)obj;
+                return product.name.CompareTo(name);
+            }
+            public override string ToString()
+            {
+                return name;
+            }
+
+        }
+        class Bill
+        {
+            public int id;
+            public SortedDictionary<Product, int> products;
+
+            public Bill(int id)
+            {
+                this.id = id;
+                this.products = new SortedDictionary<Product, int>();
+                GenerateProducts();
+            }
+
+            public override string ToString()
+            {
+                string str = "";
+                str += "\n--------------------\n";
+                str += "bill no:" + this.id + "\nProducts:";
+                foreach (KeyValuePair<Product, int> product in this.products)
+                {
+                    str += product.ToString() + " ";
+                }
+                str += "\n--------------------\n";
+                return str;
+            }
+
+            private void GenerateProducts()
+            {
+                var random = new Random();
+                int x = random.Next(1, NR_INPUT_PRODUCTS_BILL);
+                for (int i = 0; i < x; i++)
+                {
+                    int idx = random.Next(1, ProductsType.Count());
+                    int randomQuantity = random.Next(1, NR_INPUT_PRODUCTS_BILL);
+                    Product product = ProductsType[idx];
+
+                    if (products.ContainsKey(product))
+                    {
+                        products[product] += randomQuantity;
+                    }
+                    else
+                    {
+                        products.Add(product, randomQuantity);
+                    }
+                }
+
+
+            }
+
+        }
+
+        static void Main(string[] args)
+        {
+            //create a random stock for our shop
+            Shop shop = new Shop();
+            List<Thread> threads = new List<Thread>();
+            for(int i = 0;i < 3; i++)
+            {
+                Thread T = new Thread(new ThreadStart(shop.GenerateSales));
+                threads.Add(T);
+            }
+          
+            threads.ForEach(t => t.Start());
+
+            threads.ForEach(t => t.Join());
+            //T4.Abort();
+            shop.CheckConsitency();
+
+            Console.WriteLine("------------------------------------------");
+            Console.WriteLine("final stock:");
+            foreach (KeyValuePair<Product, int> product in shop.products)
+            {
+                Console.WriteLine(product.Key + " " + product.Value);
+            }
+            Console.WriteLine("FINAL INCOME=" + shop.income);
+            Console.WriteLine("failed checks:" + shop.failedChecks);
+            Console.ReadKey();
+        }
+    }
+}
